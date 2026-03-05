@@ -18,7 +18,7 @@ export default function RootLayout() {
   const [permissionChecked, setPermissionChecked] = useState(false);
   const [fontsLoaded] = useFonts({
     InstrumentSerif_400Regular: require('../assets/fonts/InstrumentSerif-Regular.ttf'),
-    InstrumentSerif_700Bold: require('../assets/fonts/InstrumentSerif-Bold.ttf'),
+    InstrumentSerif_700Bold: require('../assets/fonts/InstrumentSerif-Italic.ttf'),
   });
 
   useEffect(() => {

@@ -1,22 +1,15 @@
+import { Accelerometer, Pedometer } from 'expo-sensors';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
-import { Accelerometer, Pedometer } from 'expo-sensors';
-import * as SQLite from 'expo-sqlite';
 
-import { BACKGROUND_STEP_TASK, ensureBackgroundTaskDefined } from '../services/BackgroundService';
 import type { SensorStrategy } from '../context/StepContext';
-
-const DB_NAME = 'steps.db';
-const TABLE_NAME = 'step_data';
-
-const getTodayKey = () => {
-  const d = new Date();
-  return d.toISOString().slice(0, 10); // YYYY-MM-DD
-};
-
-const openDatabase = () => {
-  return SQLite.openDatabaseAsync(DB_NAME);
-};
+import { BACKGROUND_STEP_TASK, ensureBackgroundTaskDefined } from '../services/BackgroundService';
+import {
+  ensureDb,
+  loadTodaySteps as storageLoadTodaySteps,
+  saveTodaySteps as storageSaveTodaySteps,
+  type StepDb,
+} from '../storage/stepStorage.native';
 
 export interface UseStepLogicResult {
   steps: number;
@@ -38,30 +31,14 @@ export const useStepLogic = (): UseStepLogicResult => {
   const walkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accelSubscriptionRef = useRef<ReturnType<typeof Accelerometer.addListener> | null>(null);
   const pedometerSubscriptionRef = useRef<ReturnType<typeof Pedometer.watchStepCount> | null>(null);
-  const dbRef = useRef<SQLite.SQLiteDatabase | null>(null);
+  const dbRef = useRef<StepDb | null>(null);
 
   const persistSteps = useCallback(async (value: number) => {
     try {
-      const db = dbRef.current ?? (await openDatabase());
+      const db = dbRef.current ?? (await ensureDb());
       dbRef.current = db;
 
-      await db.execAsync(`
-        CREATE TABLE IF NOT EXISTS ${TABLE_NAME} (
-          id INTEGER PRIMARY KEY NOT NULL,
-          date TEXT NOT NULL UNIQUE,
-          steps INTEGER NOT NULL
-        );
-      `);
-
-      const today = getTodayKey();
-
-      await db.runAsync(
-        `INSERT INTO ${TABLE_NAME} (date, steps)
-         VALUES (?, ?)
-         ON CONFLICT(date) DO UPDATE SET steps=excluded.steps;`,
-        today,
-        value,
-      );
+      await storageSaveTodaySteps(value, db);
     } catch {
       // Swallow storage errors to avoid impacting UX
     }
@@ -69,25 +46,12 @@ export const useStepLogic = (): UseStepLogicResult => {
 
   const loadInitialSteps = useCallback(async () => {
     try {
-      const db = dbRef.current ?? (await openDatabase());
+      const db = dbRef.current ?? (await ensureDb());
       dbRef.current = db;
 
-      await db.execAsync(`
-        CREATE TABLE IF NOT EXISTS ${TABLE_NAME} (
-          id INTEGER PRIMARY KEY NOT NULL,
-          date TEXT NOT NULL UNIQUE,
-          steps INTEGER NOT NULL
-        );
-      `);
-
-      const today = getTodayKey();
-      const result = await db.getFirstAsync<{ steps: number }>(
-        `SELECT steps FROM ${TABLE_NAME} WHERE date = ?;`,
-        today,
-      );
-
-      if (result && typeof result.steps === 'number') {
-        setSteps(result.steps);
+      const initialSteps = await storageLoadTodaySteps(db);
+      if (typeof initialSteps === 'number' && initialSteps >= 0) {
+        setSteps(initialSteps);
       }
     } catch {
       // Ignore initial load failure
